@@ -1,7 +1,7 @@
 import os
 from tools.cityPerson.coco import COCO
 from tools.cityPerson.eval_MR_multisetup import COCOeval
-
+import sys
 
 def validate(annFile, dt_path):
     mean_MR = []
@@ -17,3 +17,6 @@ def validate(annFile, dt_path):
         mean_MR.append(cocoEval.summarize_nofile(id_setup))
         my_id_setup.append(id_setup)
     return mean_MR
+
+if __file__ == '__main__':
+    validate(sys.argv[0], sys.argv[1])
