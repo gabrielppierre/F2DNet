@@ -94,6 +94,7 @@ data = dict(
         with_label=True,
         remove_small_box=True,
         small_box_size=8,
+        mask_height_ratio=0.5,
         strides=[4],
         regress_ranges=((-1, INF),)),
     val=dict(
