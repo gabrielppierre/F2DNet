@@ -406,7 +406,9 @@ class CocoCSPORIDataset(CustomDataset):
             for ind in range(len(igs)):
                 x1, y1, x2, y2 = igs[ind, 0], igs[ind, 1], igs[ind, 2], igs[ind, 3]
                 cx, cy, wr, hr = int((x1 + x2)/2), int((y1 + y2)), int((x2 - x1) * self.mask_height_ratio), int((y2 - y1) * self.mask_height_ratio)
-                pos_map[1, cy-hr:cy+hr, cx-wr:cx+wr] = 0
+                wr2, hr2 = int(wr/2), int(hr/2)
+                x1, y1 = cx - wr2, cy - hr2
+                pos_map[1, y1:y1+hr, x1:x1+wr] = 0
         half_height = gts[:, 3] - gts[:, 1]
         half_height = (half_height >= regress_range[0]) & (half_height <= regress_range[1])
         inds = half_height.nonzero()
@@ -417,13 +419,14 @@ class CocoCSPORIDataset(CustomDataset):
                 x1, y1, x2, y2 = int(np.ceil(gts[ind, 0])), int(np.ceil(gts[ind, 1])), int(gts[ind, 2]), int(gts[ind, 3])
                 c_x, c_y = int((gts[ind, 0] + gts[ind, 2]) / 2), int((gts[ind, 1] + gts[ind, 3]) / 2)
                 wr, hr = int((x2 - x1) * self.mask_height_ratio), int((y2 - y1) * self.mask_height_ratio)
-
+                wr2, hr2 = int(wr / 2), int(hr / 2)
+                x1, y1 = c_x - wr2, c_y - hr2
                 dx = gaussian(wr)
                 dy = gaussian(hr)
                 gau_map = np.multiply(dy, np.transpose(dx))
 
-                pos_map[0, c_y-hr:c_y+hr, c_x-wr:c_x+wr] = np.maximum(pos_map[0, c_y-hr:c_y+hr, c_x-wr:c_x+wr], gau_map)  # gauss map
-                pos_map[1, c_y-hr:c_y+hr, c_x-wr:c_x+wr] = 1  # 1-mask map
+                pos_map[0, y1:y1+hr, x1:x1+wr] = np.maximum(pos_map[0, y1:y1+hr, x1:x1+wr], gau_map)  # gauss map
+                pos_map[1, y1:y1+hr, x1:x1+wr] = 1  # 1-mask map
                 pos_map[2, c_y, c_x] = 1  # center map
 
                 if not self.with_width:
