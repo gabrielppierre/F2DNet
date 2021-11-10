@@ -269,101 +269,8 @@ def main():
             #print("")
             #outputs_trainval = multi_gpu_test(model, trainval_dataloader, args.tmpdir)
 
-        print("processing...")
-        def load_ann(ann_file):
-
-            
-
-            HtRng = [[50, 1e5 ** 2], [50, 75], [50, 1e5 ** 2], [20, 1e5 ** 2]]
-            VisRng = [[0.65, 1e5 ** 2], [0.65, 1e5 ** 2], [0.2, 0.65], [0.2, 1e5 ** 2]]
-            settings = [dict(h=HtRng[i], v=VisRng[i]) for i in range(4)]
-
-            with open(ann_file) as t:
-                ann = json.load(t)
-            
-            annotations = {}
-            ann_count = 0
-            keys = ['r', 's', 'h', 'a']
-            set_id_ann_map = dict(r={}, s={}, h={}, a={})
-            for anb in ann['annotations']:
-                #print(anb["image_id"])
-                ann_count += 1
-                if anb['category_id'] == 1 and anb['height'] >= 20:
-                    for j in range(4):
-                        if settings[j]['h'][0] <= anb['height'] <= settings[j]['h'][1] and settings[j]['v'][0] <= anb['vis_ratio'] <= settings[j]['v'][1]:
-                            if not anb['image_id'] in set_id_ann_map[keys[j]]:
-                                set_id_ann_map[keys[j]][anb['image_id']] = []
-                            if not anb['image_id'] in annotations:
-                                annotations[anb['image_id']] = {}
-                            set_id_ann_map[keys[j]][anb['image_id']].append(anb['id'])
-                            annotations[anb['image_id']][anb["id"]] = anb["bbox"]
-
-            return set_id_ann_map, annotations
-
-        def crunch_mrs(imap, hits_map):
-            mrs = {}
-            for k, v in imap.items():
-                hits = 0
-                miss = 0
-                for im_id, ann_list in v.items():
-                    for ann_id in ann_list:
-                        if hits_map[ann_id]:
-                            hits += 1
-                        else:
-                            miss += 1
-                mrs[k] = miss/(hits+miss)
-            return mrs
-
-        def find_hits(anns, _res):
-            hit_map = {}
-            for img_id, image_anns in anns.items():
-                if img_id not in _res:
-                    for ann_id, ann in image_anns.items():
-                        hit_map[ann_id] = False
-                    continue
-                img_res = _res[img_id]
-                #print("Looking hits for ", img_id)
-                for ann_id, ann in image_anns.items():
-
-                    max_ind = -1
-                    max_iou = 0.0
-
-                    gx1, gy1, gw, gh = ann
-                    gt_area = gw * gh
-                    gx2, gy2 = gx1 + gw, gy1 + gh
-                    taken = []
-                    for ind in range(len(img_res)):
-                        if ind in taken:
-                            continue
-                        #print(ind, img_res[ind])
-                        px1, py1, pw, ph, s = img_res[ind]
-                        pred_area = pw * ph
-                        px2, py2 = px1 + pw, py1 + ph
-
-                        ix1 = max(gx1, px1)
-                        ix2 = min(gx2, px2)
-                        iy1 = max(gy1, py1)
-                        iy2 = min(gy2, py2)
-                        ih = iy2 - iy1
-                        iw = ix2 - ix1
-                        if ih > 0 and iw > 0:
-                            intersection_area = ih * iw
-                            
-                            ji = intersection_area/(gt_area + pred_area - intersection_area)
-                            if ji >= 0.5 or max_ind == -1:
-                                max_ind = ind
-                                max_iou = ji
-
-                    if max_iou >= 0.5:
-                        taken.append(max_ind)
-                        hit_map[ann_id] = True
-                    else:
-                        hit_map[ann_id] = False
-            return hit_map
         if rank == 0:
-            res = {}
             check = []
-            pred_count = 0
             for out in outputs:
                 for s_out in out:
                     boxes, id = s_out
@@ -373,9 +280,6 @@ def main():
                     boxes[:, [2, 3]] -= boxes[:, [0, 1]]
                     if boxes is None:
                         boxes = []
-                    if new_test:
-                        pred_count += len(boxes)
-                        res[id] = boxes
                     if len(boxes) > 0 and traditional_test:
                         for box in boxes:
                             temp = dict()
@@ -384,88 +288,30 @@ def main():
                             temp['bbox'] = box[:4].tolist()
                             temp['score'] = float(box[4])
                             check.append(temp)
+            with open(args.out, 'w') as f:
+                json.dump(check, f)
+            stats = validate('datasets/Caltech/val.json', args.out)
+            MRs = stats["lamr"]
             if traditional_test:
-                with open(args.out, 'w') as f:
-                    json.dump(check, f)
-                MRs = validate('datasets/Caltech/val.json', args.out)
-                print("Checkpoint %d: [VR: %.2f], [VS: %.2f], [VH: %.2f], [VA: %.2f]" % (i, MRs[0]*100, MRs[1]*100, MRs[2]*100, MRs[3]*100))
                 tval_writer.add_scalar('Reasonable', MRs[0], i)
                 tval_writer.add_scalar('Small', MRs[1], i)
                 tval_writer.add_scalar('Heavy', MRs[2], i)
                 tval_writer.add_scalar('All', MRs[3], i)
-                
                 tval_writer.flush()
-
             if new_test:
-                #print("Gathered results...")
-                info_map, test_anns = load_ann(cfg.data.test.ann_file)
-                #print("Loaded anns\nfinding hits")
-                hit_map = find_hits(test_anns, res)
-                tps = np.sum([1 for k, v in hit_map.items() if v])
-                fps = pred_count - tps
-                fppi = fps/len(dataset)
-                print("Crunching MRs")
-                mrs = crunch_mrs(info_map, hit_map)
-                nval_writer.add_scalar('Reasonable', mrs['r'], i)
-                nval_writer.add_scalar('Small', mrs['s'], i)
-                nval_writer.add_scalar('Heavy', mrs['h'], i)
-                nval_writer.add_scalar('All', mrs['a'], i)
-                nval_writer.add_scalar('FPPI', fppi, i)
+                mrs = stats["mr"]
+                fppi = stats["fppi"]
+                nval_writer.add_scalar('Reasonable', mrs[0], i)
+                nval_writer.add_scalar('Small', mrs[1], i)
+                nval_writer.add_scalar('Heavy', mrs[2], i)
+                nval_writer.add_scalar('All', mrs[3], i)
+                nval_writer.add_scalar('FPPI Resonable', fppi[0], i)
+                nval_writer.add_scalar('FPPI Small', fppi[1], i)
+                nval_writer.add_scalar('FPPI Heavy', fppi[2], i)
+                nval_writer.add_scalar('FPPI All', fppi[3], i)
                 nval_writer.flush()
-                print("Checkpoint %d: [VR: %.2f], [VS: %.2f], [VH: %.2f], [VA: %.2f], [FPPI: %.2f]" % (i, mrs['r'], mrs['s'], mrs['h'], mrs['a'], fppi))
-            
-            #res = {}
-            #check = []
-            #pred_count = 0
-            #for out in outputs_trainval:
-            #    for s_out in out:
-            #        boxes, id = s_out
-
-            #        if type(boxes) == list:
-            #            boxes = boxes[0]
-            #        boxes[:, [2, 3]] -= boxes[:, [0, 1]]
-            #        if boxes is None:
-            #            boxes = []
-            #        if new_test:
-            #            pred_count += len(boxes)
-            #            res[id] = boxes
-            #        if len(boxes) > 0 and traditional_test:
-            #            for box in boxes:
-            #                temp = dict()
-            #                temp['image_id'] = id
-            #                temp['category_id'] = 1
-            #                temp['bbox'] = box[:4].tolist()
-            #                temp['score'] = float(box[4])
-            #                check.append(temp)
-            #if traditional_test:
-            #    with open(args.out, 'w') as f:
-            #        json.dump(check, f)
-            #    MRs = validate('datasets/CityPersons/train_vis.json', args.out)
-            #    print("Checkpoint %d: [tR: %.2f], [tS: %.2f], [tH: %.2f], [tA: %.2f]" % (i, MRs[0], MRs[1], MRs[2], MRs[3]))
-            #    ttrain_writer.add_scalar('Reasonable', MRs[0], i)
-            #    ttrain_writer.add_scalar('Small', MRs[1], i)
-            #    ttrain_writer.add_scalar('Heavy', MRs[2], i)
-            #    ttrain_writer.add_scalar('All', MRs[3], i)
-            #                               
-            #    ttrain_writer.flush()
-
-            #if new_test:
-            #    #print("Gathered results...")
-            #    info_map, trainval_anns = load_ann(trainval_conf.ann_file)
-            #    #print("Loaded anns\nfinding hits")
-            #    hit_map = find_hits(trainval_anns, res)
-            #    tps = np.sum([1 for k, v in hit_map.items() if v])
-            #    fps = pred_count - tps
-            #    fppi = fps/len(trainval_dataset)
-            #    print("Crunching MRs")
-            #    mrs = crunch_mrs(info_map, hit_map)
-            #    ntrain_writer.add_scalar('Reasonable', mrs['r'], i)
-            #    ntrain_writer.add_scalar('Small', mrs['s'], i)
-            #    ntrain_writer.add_scalar('Heavy', mrs['h'], i)
-            #    ntrain_writer.add_scalar('All', mrs['a'], i)
-            #    ntrain_writer.flush()
-            #    print("Checkpoint %d: [tR: %.2f], [tS: %.2f], [tH: %.2f], [tA: %.2f], [FPPI: %.2f]" % (i, mrs['r'], mrs['s'], mrs['h'], mrs['a'], fppi))
-
+            print("Checkpoint %d: " % i)
+            print(stats)
 
 if __name__ == '__main__':
     main()
