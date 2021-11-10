@@ -204,6 +204,7 @@ class CSPHead(nn.Module):
                                       bbox_preds[0].device)
         result_list = []
         for img_id in range(len(img_metas)):
+            data_id = img_metas[img_id]['id']
             cls_score_list = [
                 cls_scores[i][img_id].detach() for i in range(num_levels)
             ]
@@ -218,7 +219,7 @@ class CSPHead(nn.Module):
             det_bboxes = self.get_bboxes_single(cls_score_list, bbox_pred_list,
                                                 offset_pred_list,
                                                 mlvl_points, img_shape,
-                                                scale_factor, cfg, rescale)
+                                                scale_factor, cfg, data_id, rescale)
             result_list.append(det_bboxes)
         return result_list
 
@@ -230,6 +231,7 @@ class CSPHead(nn.Module):
                           img_shape,
                           scale_factor,
                           cfg,
+                          data_id=None,
                           rescale=False):
         assert len(cls_scores) == len(bbox_preds) == len(mlvl_points)
         mlvl_bboxes = []
@@ -276,7 +278,7 @@ class CSPHead(nn.Module):
         # center_x = (det_bboxes[:, 0] + det_bboxes[:, 2])/2
         # center_y = (det_bboxes[:, 1] + det_bboxes[:, 3])/2
         # print(torch.stack([center_y, center_x], -1), 'center ')
-        return det_bboxes, det_labels
+        return det_bboxes, det_labels, data_id
 
     def get_points(self, featmap_sizes, dtype, device):
         """Get points according to feature map sizes.

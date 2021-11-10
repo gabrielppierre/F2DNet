@@ -207,10 +207,10 @@ class CSP(SingleStageDetector):
             return self.bbox_head.get_bboxes_features(*bbox_inputs)
         bbox_list = self.bbox_head.get_bboxes(*bbox_inputs)
         bbox_results = [
-            bbox2result(det_bboxes, det_labels, self.bbox_head.num_classes)
-            for det_bboxes, det_labels in bbox_list
+            (bbox2result(det_bboxes, det_labels, self.bbox_head.num_classes)[0], data_id)
+            for det_bboxes, det_labels, data_id in bbox_list
         ]
-        return bbox_results[0]
+        return bbox_results
 
     def foward_features(self, features):
         bbox_list = self.bbox_head.get_bboxes(*features)

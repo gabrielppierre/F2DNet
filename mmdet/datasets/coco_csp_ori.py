@@ -322,6 +322,67 @@ class CocoCSPORIDataset(CustomDataset):
         data['offset_maps'] = DC([to_tensor(offset_map) for offset_map in offset_maps])
         return data
 
+    def prepare_test_img(self, idx):
+        """Prepare an image for testing (multi-scale and flipping)"""
+        img_info = self.img_infos[idx]
+        img_id = img_info["id"]
+        img = mmcv.imread(osp.join(self.img_prefix, img_info['filename']))
+        if self.proposals is not None:
+            proposal = self.proposals[idx][:self.num_max_proposals]
+            if not (proposal.shape[1] == 4 or proposal.shape[1] == 5):
+                raise AssertionError(
+                    'proposals should have shapes (n, 4) or (n, 5), '
+                    'but found {}'.format(proposal.shape))
+        else:
+            proposal = None
+
+        def prepare_single(img, scale, flip, proposal=None, data_id=None):
+            _img, img_shape, pad_shape, scale_factor = self.img_transform(
+                img, scale, flip, keep_ratio=self.resize_keep_ratio)
+            _img = to_tensor(_img)
+            _img_meta = dict(
+                ori_shape=(img_info['height'], img_info['width'], 3),
+                img_shape=img_shape,
+                pad_shape=pad_shape,
+                scale_factor=scale_factor,
+                flip=flip,
+                id=data_id,
+            )
+            if proposal is not None:
+                if proposal.shape[1] == 5:
+                    score = proposal[:, 4, None]
+                    proposal = proposal[:, :4]
+                else:
+                    score = None
+                _proposal = self.bbox_transform(proposal, img_shape,
+                                                scale_factor, flip)
+                _proposal = np.hstack(
+                    [_proposal, score]) if score is not None else _proposal
+                _proposal = to_tensor(_proposal)
+            else:
+                _proposal = None
+            return _img, _img_meta, _proposal
+
+        imgs = []
+        img_metas = []
+        proposals = []
+        for scale in self.img_scales:
+            _img, _img_meta, _proposal = prepare_single(
+                img, scale, False, proposal, img_id)
+            imgs.append(_img)
+            img_metas.append(DC(_img_meta, cpu_only=True))
+            proposals.append(_proposal)
+            if self.flip_ratio > 0:
+                _img, _img_meta, _proposal = prepare_single(
+                    img, scale, True, proposal)
+                imgs.append(_img)
+                img_metas.append(DC(_img_meta, cpu_only=True))
+                proposals.append(_proposal)
+        data = dict(img=imgs, img_meta=img_metas)
+        if self.proposals is not None:
+            data['proposals'] = proposals
+        return data
+
     def calc_gt_center(self, gts, igs, radius=8, stride=4, regress_range=(-1, INF), image_shape=None):
 
         def gaussian(kernel):
