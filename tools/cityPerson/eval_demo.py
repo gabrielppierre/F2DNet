@@ -6,6 +6,7 @@ import sys
 def validate(annFile, dt_path):
     mean_MR = []
     my_id_setup = []
+    stats = dict(mr=[], fppi=[], lamr=[])
     for id_setup in range(0, 4):
         cocoGt = COCO(annFile)
         cocoDt = cocoGt.loadRes(dt_path)
@@ -14,9 +15,11 @@ def validate(annFile, dt_path):
         cocoEval.params.imgIds = imgIds
         cocoEval.evaluate(id_setup)
         cocoEval.accumulate()
-        mean_MR.append(cocoEval.summarize_nofile(id_setup))
+        stats["mr"].append(cocoEval.eval["mr"])
+        stats["fppi"].append(cocoEval.eval["fppi"])
+        stats["lamr"].append(cocoEval.summarize_nofile(id_setup))
         my_id_setup.append(id_setup)
-    return mean_MR
+    return stats
 
 if __file__ == '__main__':
-    validate(sys.argv[0], sys.argv[1])
+    print(validate(sys.argv[0], sys.argv[1]))

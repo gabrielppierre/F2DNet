@@ -338,6 +338,9 @@ class COCOeval:
         M           = len(p.maxDets)
         ys   = -np.ones((T,R,K,M)) # -1 for the precision of absent categories
 
+        _fppi = 100.0
+        _mr = 1.0
+
 
         # create dictionary for future indexing
         _pe = self._paramsEval
@@ -388,6 +391,8 @@ class COCOeval:
                     nd = len(tp)
                     recall = tp / npig
                     q = np.zeros((R,))
+                    _mr = 1 - recall[-1]
+                    _fppi = fppi[-1]
 
                     # numpy is slow without cython optimization for accessing elements
                     # use python array gets significant speed improvement
@@ -410,6 +415,8 @@ class COCOeval:
             'counts': [T, R, K, M],
             'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'TP':   ys,
+            'fppi': _fppi,
+            'mr': _mr,
         }
         toc = time.time()
         # print('DONE (t={:0.2f}s).'.format( toc-tic))
