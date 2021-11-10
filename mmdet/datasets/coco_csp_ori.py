@@ -62,6 +62,7 @@ class CocoCSPORIDataset(CustomDataset):
                  with_width=False):
         # prefix of images path
         self.img_prefix = img_prefix
+        self.mask_height_ratio=mask_height_ratio
 
         # load annotations (and proposals)
         self.img_infos = self.load_annotations(ann_file)
