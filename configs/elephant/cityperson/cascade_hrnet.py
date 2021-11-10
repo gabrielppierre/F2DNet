@@ -1,3 +1,4 @@
+
 # model settings
 model = dict(
     type='CascadeRCNN',
@@ -220,17 +221,17 @@ test_cfg = dict(
     keep_all_stages=False)
 # dataset settings
 dataset_type = 'CocoDataset'
-data_root = 'datasets/CityPersons/'
+data_root = '/netscratch/hkhan/cp/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53],
     std=[58.395, 57.12, 57.375],
     to_rgb=True)
 data = dict(
-    imgs_per_gpu=2,
-    workers_per_gpu=5,
+    imgs_per_gpu=16,
+    workers_per_gpu=4,
     train=dict(
         type=dataset_type,
-        ann_file=data_root + 'train.json',
+        ann_file='./datasets/CityPersons/train.json',
         img_prefix=data_root,
         img_scale=[(1216, 608), (2048, 1024)],
         multiscale_mode='range',
@@ -246,10 +247,21 @@ data = dict(
              random_crop=dict(min_ious=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9), min_crop_size=0.1),
          ),
     ),
+    val=dict(
+        type=dataset_type,
+        ann_file='./datasets/CityPersons/val_gt_for_mmdetction.json',
+        img_prefix=data_root + '/leftImg8bit_trainvaltest/leftImg8bit/val/',
+        img_scale=(2048, 1024),
+        img_norm_cfg=img_norm_cfg,
+        size_divisor=32,
+        flip_ratio=0,
+        with_mask=False,
+        with_label=False,
+        test_mode=True),
     test=dict(
         type=dataset_type,
-	ann_file=data_root + 'val_gt_for_mmdetction.json',
-        img_prefix=data_root + '/leftImg8bit_trainvaltest/leftImg8bit/val_all_in_folder/',
+	ann_file='./datasets/CityPersons/train_vis.json',
+        img_prefix=data_root,
         img_scale=(2048, 1024),
         img_norm_cfg=img_norm_cfg,
         size_divisor=32,
@@ -269,6 +281,7 @@ lr_config = dict(
     warmup_ratio=1.0 / 3,
     step=[110, 160])
 checkpoint_config = dict(interval=1)
+evaluation = dict(interval=1, eval_hook='CocoDistEvalMRHook')
 # yapf:disable
 log_config = dict(
     interval=50,
@@ -278,10 +291,10 @@ log_config = dict(
     ])
 # yapf:enable
 # runtime settings
-total_epochs = 240
+total_epochs = 300
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = './work_dirs/cityperson_cascade_rcnn_hrnetv2p_w32'
+work_dir = '/netscratch/hkhan/work_dirs/cityperson_cascade_rcnn_hrnetv2p_w32'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

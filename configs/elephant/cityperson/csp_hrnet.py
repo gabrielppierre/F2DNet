@@ -1,26 +1,43 @@
 # model settings
 model = dict(
     type='CSP',
-    pretrained='modelzoo://resnet50',
+    pretrained='open-mmlab://msra/hrnetv2_w32',
     backbone=dict(
-        type='ResNet',
-        depth=50,
-        num_stages=4,
-        strides=(1, 2, 2, 1),
-        dilations=(1, 1, 1, 2),
-        out_indices=(1, 2, 3),
-        frozen_stages=-1,
+        type='HRNet',
+        extra=dict(
+            stage1=dict(
+                num_modules=1,
+                num_branches=1,
+                block='BOTTLENECK',
+                num_blocks=(4,),
+                num_channels=(64,)),
+            stage2=dict(
+                num_modules=1,
+                num_branches=2,
+                block='BASIC',
+                num_blocks=(4, 4),
+                num_channels=(32, 64)),
+            stage3=dict(
+                num_modules=4,
+                num_branches=3,
+                block='BASIC',
+                num_blocks=(4, 4, 4),
+                num_channels=(32, 64, 128)),
+            stage4=dict(
+                num_modules=3,
+                num_branches=4,
+                block='BASIC',
+                num_blocks=(4, 4, 4, 4),
+                num_channels=(32, 64, 128, 256))
+        ),
+        # frozen_stages=-1,
         norm_eval=False,
-        style='pytorch'),
+    ),
     neck=dict(
-        type='CSPNeck',
-        in_channels=[512, 1024, 2048],
-        out_channels=256,
-        start_level=0,
-        add_extra_convs=True,
-        extra_convs_on_inputs=False,  # use P5
-        num_outs=5,
-        relu_before_extra_convs=True),
+        type='HRFPN',
+        in_channels=[32, 64, 128, 256],
+        out_channels=768,
+        num_outs=1),
     bbox_head=dict(
         type='CSPHead',
         num_classes=2,
@@ -61,8 +78,8 @@ INF = 1e8
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 data = dict(
-    imgs_per_gpu=8,
-    workers_per_gpu=4,
+    imgs_per_gpu=4,
+    workers_per_gpu=2,
     train=dict(
         type=dataset_type,
         ann_file='./datasets/CityPersons/train.json',
@@ -70,7 +87,7 @@ data = dict(
 
         img_scale=(2048, 1024),
         img_norm_cfg=img_norm_cfg,
-        size_divisor=128,
+        size_divisor=32,
         flip_ratio=0.5,
         with_mask=False,
         with_crowd=True,
@@ -122,8 +139,8 @@ lr_config = dict(
     policy='step',
     warmup='constant',
     warmup_iters=250,
-    warmup_ratio=1.0/3,
-    step=[30, 80])
+    warmup_ratio=1.0 / 3,
+    step=[80])
 
 checkpoint_config = dict(interval=1)
 evaluation = dict(interval=1, eval_hook='CocoDistEvalMRHook')
@@ -140,9 +157,9 @@ total_epochs = 120
 device_ids = range(4)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = '/netscratch/hkhan/work_dirs/cspLR'
+work_dir = '/netscratch/hkhan/work_dirs/csp_hrnet_ext/'
 load_from = None
-# load_from = '/home/ljp/code/mmdetection/work_dirs/fcos_mstrain_640_800_x101_64x4d_fpn_gn_2x/epoch_22.pth'
+#load_from = '/netscratch/hkhan/work_dirs/csp_hrnet/epoch_53.pth'
 resume_from = None
 # resume_from = '/home/ljp/code/mmdetection/work_dirs/csp4_mstrain_640_800_x101_64x4d_fpn_gn_2x/epoch_10.pth'
 workflow = [('train', 1)]
