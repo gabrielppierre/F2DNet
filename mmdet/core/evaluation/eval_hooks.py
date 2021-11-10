@@ -47,7 +47,7 @@ class DistEvalHook(Hook):
             with torch.no_grad():
                 result = runner.model(
                     return_loss=False, rescale=True, **data_gpu)
-            results[idx] = result
+            results[idx] = [result[0][0]]
 
             batch_size = runner.world_size
             if runner.rank == 0:
@@ -63,13 +63,53 @@ class DistEvalHook(Hook):
                 for idx in range(i, len(results), runner.world_size):
                     results[idx] = tmp_results[idx]
                 os.remove(tmp_file)
-            self.evaluate(runner, results)
+            if not hasattr(self, 'train_dataset'):
+                self.evaluate(runner, results)
         else:
             tmp_file = osp.join(runner.work_dir,
                                 'temp_{}.pkl'.format(runner.rank))
             mmcv.dump(results, tmp_file)
             dist.barrier()
         dist.barrier()
+
+        # custom
+        if hasattr(self, 'train_dataset'):
+            train_results = [None for _ in range(len(self.train_dataset))]
+            if runner.rank == 0:
+                prog_bar = mmcv.ProgressBar(len(self.train_dataset))
+            for idx in range(runner.rank, len(self.train_dataset), runner.world_size):
+                data = self.train_dataset[idx]
+                data_gpu = scatter(
+                    collate([data], samples_per_gpu=1),
+                    [torch.cuda.current_device()])[0]
+
+                # compute output
+                with torch.no_grad():
+                    result = runner.model(
+                        return_loss=False, rescale=True, **data_gpu)
+                train_results[idx] = [result[0][0]]
+
+                batch_size = runner.world_size
+                if runner.rank == 0:
+                    for _ in range(batch_size):
+                        prog_bar.update()
+
+            if runner.rank == 0:
+                print('\n')
+                dist.barrier()
+                for i in range(1, runner.world_size):
+                    tmp_file = osp.join(runner.work_dir, 'temp_{}.pkl'.format(i))
+                    tmp_results = mmcv.load(tmp_file)
+                    for idx in range(i, len(train_results), runner.world_size):
+                        train_results[idx] = tmp_results[idx]
+                    os.remove(tmp_file)
+                self.evaluate(runner, results, train_results, train_dataset=True)
+            else:
+                tmp_file = osp.join(runner.work_dir,
+                                    'temp_{}.pkl'.format(runner.rank))
+                mmcv.dump(train_results, tmp_file)
+                dist.barrier()
+            dist.barrier()
 
     def evaluate(self):
         raise NotImplementedError
@@ -173,38 +213,68 @@ class CocoDistEvalMRHook(DistEvalHook):
         res_types(list): detection type, currently support 'bbox'
             and 'vis_bbox'.
     """
-    def __init__(self, dataset, interval=1, res_types=['bbox']):
+    def __init__(self, dataset, train_dataset=None, interval=1, res_types=['bbox']):
         super().__init__(dataset, interval)
         self.res_types = res_types
+        if train_dataset:
+            self.train_dataset = obj_from_dict(train_dataset, datasets, {'test_mode': True})
 
-    def evaluate(self, runner, results):
+    def evaluate(self, runner, results, train_results=None, train_dataset=False):
         tmp_file = osp.join(runner.work_dir, 'temp_0')
         result_files = results2json(self.dataset, results, tmp_file)
-
         cocoGt = self.dataset.coco
+        
+        if train_results is not None:
+            ttmp_file = osp.join(runner.work_dir, 'temp_1')
+            tresult_files = results2json(self.train_dataset, train_results, ttmp_file)
+            tcocoGt = self.train_dataset.coco
+            timgIds = tcocoGt.getImgIds()
         imgIds = cocoGt.getImgIds()
         for res_type in self.res_types:
             assert res_type in ['bbox', 'vis_bbox']
             try:
                 cocoDt = cocoGt.loadRes(result_files['bbox'])
+                if train_results is not None:
+                    tcocoDt = tcocoGt.loadRes(tresult_files['bbox'])
             except IndexError:
                 print('No prediction found.')
                 break
-            metrics = ['MR_Reasonable', 'MR_Small', 'MR_Middle', 'MR_Large',
-                       'MR_Bare', 'MR_Partial', 'MR_Heavy', 'MR_R+HO']
+            
+            metrics = ['MR_Reasonable', 'MR_Small', 'MR_R+HO', 'MR_All']
+            
             cocoEval = COCOMReval(cocoGt, cocoDt, res_type)
             cocoEval.params.imgIds = imgIds
-            for id_setup in range(0,8):
+            if train_results is not None:
+                tcocoEval = COCOMReval(tcocoGt, tcocoDt, res_type)
+                tcocoEval.params.imgIds = timgIds
+            for id_setup in range(0,4):
                 cocoEval.evaluate(id_setup)
                 cocoEval.accumulate()
                 cocoEval.summarize(id_setup)
                 
-                key = '{}'.format(metrics[id_setup])
+                if train_results is not None:
+                    tcocoEval.evaluate(id_setup)
+                    tcocoEval.accumulate()
+                    tcocoEval.summarize(id_setup)
+                
+                #key = 'v_{}'.format(metrics[id_setup])
+                #val = float('{:.3f}'.format(cocoEval.stats[id_setup]))
+                #runner.log_buffer.output[key] = val
+                if train_results is not None:
+                    tkey = '{}'.format(metrics[id_setup])
+                    tval = float('{:.3f}'.format(cocoEval.stats[id_setup]))
+                    runner.log_buffer.output[tkey] = tval
+                
+                key = 'v_{}'.format(metrics[id_setup])
                 val = float('{:.3f}'.format(cocoEval.stats[id_setup]))
                 runner.log_buffer.output[key] = val
-            runner.log_buffer.output['{}_MR_copypaste'.format(res_type)] = (
-                '{mr[0]:.3f} {mr[1]:.3f} {mr[2]:.3f} {mr[3]:.3f} '
-                '{mr[4]:.3f} {mr[5]:.3f} {mr[6]:.3f} {mr[7]:.3f} ').format(
-                    mr=cocoEval.stats[:8])
+            runner.log_buffer.output['v_{}_MR_copypaste'.format(res_type)] = (
+                '{mr[0]:.3f} {mr[1]:.3f} {mr[2]:.3f} {mr[3]:.3f}').format(
+                    mr=cocoEval.stats[:4])
+            if train_results is not None:
+                runner.log_buffer.output['t_{}_MR_copypaste'.format(res_type)] = (
+                    '{mr[0]:.3f} {mr[1]:.3f} {mr[2]:.3f} {mr[3]:.3f}').format(mr=tcocoEval.stats[:4])
         runner.log_buffer.ready = True
         os.remove(result_files['bbox'])
+        if train_results is not None:
+            os.remove(tresult_files['bbox'])
