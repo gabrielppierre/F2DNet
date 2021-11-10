@@ -45,6 +45,10 @@ model = dict(
         stacked_convs=1,
         feat_channels=256,
         strides=[4],
+        conv_cfg=dict(
+            # type='DefConv',
+            type='Conv',
+        ),
         loss_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,

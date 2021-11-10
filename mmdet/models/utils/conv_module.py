@@ -1,6 +1,8 @@
 import warnings
 
+import numpy as np
 import torch.nn as nn
+from torchvision.ops.deform_conv import DeformConv2d
 from mmcv.cnn import kaiming_init, constant_init
 
 from .conv_ws import ConvWS2d
@@ -9,6 +11,7 @@ from .norm import build_norm_layer
 conv_cfg = {
     'Conv': nn.Conv2d,
     'ConvWS': ConvWS2d,
+    'DefConv': DeformConv2d
     # TODO: octave conv
 }
 
@@ -87,6 +90,8 @@ class ConvModule(nn.Module):
         self.inplace = inplace
         self.activate_last = activate_last
 
+        self.use_offset = self.conv_cfg is not None and self.conv_cfg["type"] == "DefConv"
+
         self.with_norm = norm_cfg is not None
         self.with_activatation = activation is not None
         # if the conv layer is before a norm layer, bias is unnecessary.
@@ -97,6 +102,9 @@ class ConvModule(nn.Module):
         if self.with_norm and self.with_bias:
             warnings.warn('ConvModule has norm and bias at the same time')
 
+        if self.use_offset:
+            locations = kernel_size**2 if isinstance(kernel_size, int) else np.prod(np.array(kernel_size))
+            self.offset = nn.Conv2d(in_channels, 2*locations, kernel_size, stride=stride, padding=padding, bias=True)
         # build convolution layer
         self.conv = build_conv_layer(
             conv_cfg,
@@ -143,12 +151,18 @@ class ConvModule(nn.Module):
     def init_weights(self):
         nonlinearity = 'relu' if self.activation is None else self.activation
         kaiming_init(self.conv, nonlinearity=nonlinearity)
+        if self.use_offset:
+            kaiming_init(self.offset)
         if self.with_norm:
             constant_init(self.norm, 1, bias=0)
 
     def forward(self, x, activate=True, norm=True):
         if self.activate_last:
-            x = self.conv(x)
+            if self.use_offset:
+                off = self.offset(x)
+                x = self.conv(x, off)
+            else:
+                x = self.conv(x)
             if norm and self.with_norm:
                 x = self.norm(x)
             if activate and self.with_activatation:
@@ -159,5 +173,9 @@ class ConvModule(nn.Module):
                 x = self.norm(x)
             if activate and self.with_activatation:
                 x = self.activate(x)
-            x = self.conv(x)
+            if self.use_offset:
+                off = self.offset(x)
+                x = self.conv(x, off)
+            else:
+                x = self.conv(x)
         return x
