@@ -58,6 +58,7 @@ class CocoCSPORIDataset(CustomDataset):
                  regress_ranges=None,
                  upper_factor=None,
                  upper_more_factor=None,
+                 mask_height_ratio=1.0,
                  with_width=False):
         # prefix of images path
         self.img_prefix = img_prefix
@@ -310,6 +311,79 @@ class CocoCSPORIDataset(CustomDataset):
             data['proposals'] = proposals
         return data
 
+    def prepare_train_img(self, idx):
+        img_info = self.img_infos[idx]
+        # load image
+        img = mmcv.imread(osp.join(self.img_prefix, img_info['filename']))
+        # load proposals if necessary
+        if self.proposals is not None:
+            proposals = self.proposals[idx][:self.num_max_proposals]
+            # TODO: Handle empty proposals properly. Currently images with
+            # no proposals are just ignored, but they can be used for
+            # training in concept.
+            if len(proposals) == 0:
+                return None
+            if not (proposals.shape[1] == 4 or proposals.shape[1] == 5):
+                raise AssertionError(
+                    'proposals should have shapes (n, 4) or (n, 5), '
+                    'but found {}'.format(proposals.shape))
+            if proposals.shape[1] == 5:
+                scores = proposals[:, 4, None]
+                proposals = proposals[:, :4]
+            else:
+                scores = None
+
+        ann = self.get_ann_info(idx)
+        gt_bboxes = ann['bboxes']
+        gt_labels = ann['labels']
+        if self.with_crowd:
+            gt_bboxes_ignore = ann['bboxes_ignore']
+
+        assert len(self.img_scales[0]) == 2 and isinstance(self.img_scales[0][0], int)
+
+        img, gt_bboxes, gt_labels, gt_bboxes_ignore = augment(img, gt_bboxes, gt_labels, gt_bboxes_ignore, self.img_scales[0])
+        ori_shape = img.shape[:2]
+        img, img_shape, pad_shape, scale_factor = self.img_transform(
+            img, img.shape[:2], False, keep_ratio=self.resize_keep_ratio)
+        assert (scale_factor == 1)
+        img_meta = dict(
+            ori_shape=ori_shape,
+            img_shape=ori_shape,
+            pad_shape=(0,0),
+            scale_factor=1,
+            flip=False,
+            name=img_info['filename'],
+        )
+
+        pos_maps = []
+        scale_maps = []
+        offset_maps = []
+        if not self.with_crowd:
+            gt_bboxes_ignore = None
+        for i, stride in enumerate(self.strides):
+            pos_map, scale_map, offset_map = self.calc_gt_center(gt_bboxes, gt_bboxes_ignore, \
+                                            stride=stride, regress_range=self.regress_ranges[i], image_shape=ori_shape)
+            pos_maps.append(pos_map)
+            scale_maps.append(scale_map)
+            offset_maps.append(offset_map)
+
+
+        data = dict(
+            img=DC(to_tensor(img), stack=True),
+            img_meta=DC(img_meta, cpu_only=True),
+            gt_bboxes=DC(to_tensor(gt_bboxes)))
+        if self.proposals is not None:
+            data['proposals'] = DC(to_tensor(proposals))
+        if self.with_label:
+            data['gt_labels'] = DC(to_tensor(gt_labels))
+        if self.with_crowd:
+            data['gt_bboxes_ignore'] = DC(to_tensor(gt_bboxes_ignore))
+
+        data['classification_maps'] = DC([to_tensor(pos_map) for pos_map in pos_maps])
+        data['scale_maps'] = DC([to_tensor(scale_map) for scale_map in scale_maps])
+        data['offset_maps'] = DC([to_tensor(offset_map) for offset_map in offset_maps])
+        return data
+
     def calc_gt_center(self, gts, igs, radius=8, stride=4, regress_range=(-1, INF), image_shape=None):
 
         def gaussian(kernel):
@@ -329,8 +403,9 @@ class CocoCSPORIDataset(CustomDataset):
         if not igs is None and len(igs) > 0:
             igs = igs / stride
             for ind in range(len(igs)):
-                x1, y1, x2, y2 = int(igs[ind, 0]), int(igs[ind, 1]), int(np.ceil(igs[ind, 2])), int(np.ceil(igs[ind, 3]))
-                pos_map[1, y1:y2, x1:x2] = 0
+                x1, y1, x2, y2 = igs[ind, 0], igs[ind, 1], igs[ind, 2], igs[ind, 3]
+                cx, cy, wr, hr = int((x1 + x2)/2), int((y1 + y2)), int((x2 - x1) * self.mask_height_ratio), int((y2 - y1) * self.mask_height_ratio)
+                pos_map[1, cy-hr:cy+hr, cx-wr:cx+wr] = 0
         half_height = gts[:, 3] - gts[:, 1]
         half_height = (half_height >= regress_range[0]) & (half_height <= regress_range[1])
         inds = half_height.nonzero()
@@ -340,13 +415,14 @@ class CocoCSPORIDataset(CustomDataset):
             for ind in range(len(gts)):
                 x1, y1, x2, y2 = int(np.ceil(gts[ind, 0])), int(np.ceil(gts[ind, 1])), int(gts[ind, 2]), int(gts[ind, 3])
                 c_x, c_y = int((gts[ind, 0] + gts[ind, 2]) / 2), int((gts[ind, 1] + gts[ind, 3]) / 2)
+                wr, hr = int((x2 - x1) * self.mask_height_ratio), int((y2 - y1) * self.mask_height_ratio)
 
-                dx = gaussian(x2-x1)
-                dy = gaussian(y2-y1)
+                dx = gaussian(wr)
+                dy = gaussian(hr)
                 gau_map = np.multiply(dy, np.transpose(dx))
 
-                pos_map[0, y1:y2, x1:x2] = np.maximum(pos_map[0, y1:y2, x1:x2], gau_map)  # gauss map
-                pos_map[1, y1:y2, x1:x2] = 1  # 1-mask map
+                pos_map[0, c_y-hr:c_y+hr, c_x-wr:c_x+wr] = np.maximum(pos_map[0, c_y-hr:c_y+hr, c_x-wr:c_x+wr], gau_map)  # gauss map
+                pos_map[1, c_y-hr:c_y+hr, c_x-wr:c_x+wr] = 1  # 1-mask map
                 pos_map[2, c_y, c_x] = 1  # center map
 
                 if not self.with_width:
