@@ -123,7 +123,6 @@ class ConvModule(nn.Module):
         self.stride = self.conv.stride
         self.padding = self.conv.padding
         self.dilation = self.conv.dilation
-        self.transposed = self.conv.transposed
         self.output_padding = self.conv.output_padding
         self.groups = self.conv.groups
 
