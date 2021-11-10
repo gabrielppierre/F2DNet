@@ -203,6 +203,7 @@ def main():
             boxes=boxes[0]
             if type(boxes) == list:
                 boxes = boxes[0]
+            
             boxes[:, [2, 3]] -= boxes[:, [0, 1]]
             if len(boxes) > 0:
                 for box in boxes:
@@ -217,7 +218,7 @@ def main():
         with open(args.out, 'w') as f:
             json.dump(res, f)
 
-        MRs = validate('datasets/CityPersons/val_gt.json', args.out)
+        MRs = validate('datasets/CityPersons/val_gt_ds.json', args.out)
         print('Checkpoint %d: [Reasonable: %.2f%%], [Reasonable_Small: %.2f%%], [Heavy: %.2f%%], [All: %.2f%%]'
               % (i, MRs[0] * 100, MRs[1] * 100, MRs[2] * 100, MRs[3] * 100))
 

@@ -5,7 +5,7 @@ import shutil
 import tempfile
 import json
 import time
-
+import numpy as np
 import mmcv
 import torch
 import torch.distributed as dist
@@ -28,7 +28,7 @@ def single_gpu_test(model, data_loader, show=False, save_img=False, save_img_dir
     for i, data in enumerate(data_loader):
         with torch.no_grad():
             result = model(return_loss=False, rescale=not show, **data)
-        results.append(result)
+        results.append([result[0][0]])
 
         if show:
             model.module.show_result(data, result, dataset.img_norm_cfg, save_result=save_img, result_name=save_img_dir + '/' + str(i)+'.jpg')
@@ -49,7 +49,7 @@ def multi_gpu_test(model, data_loader, tmpdir=None):
     for i, data in enumerate(data_loader):
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
-        results.append(result)
+        results.append([result[0][0]])
 
         if rank == 0:
             batch_size = data['img'][0].size(0)
@@ -159,7 +159,7 @@ def main():
         data_loader = build_dataloader(
             dataset,
             imgs_per_gpu=1,
-            workers_per_gpu=cfg.data.workers_per_gpu,
+            workers_per_gpu=1,
             dist=distributed,
             shuffle=False)
 
@@ -200,6 +200,7 @@ def main():
             boxes=boxes[0]
             if type(boxes) == list:
                 boxes = boxes[0]
+            boxes = np.array(boxes)
             boxes[:, [2, 3]] -= boxes[:, [0, 1]]
             if len(boxes) > 0:
                 for box in boxes:
