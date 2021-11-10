@@ -172,7 +172,15 @@ def _dist_train(model, dataset, cfg, validate=False):
         eval_cfg = cfg.get('evaluation', {})
         eval_hook = eval_cfg.pop('eval_hook', 'CocoDistEvalmAPHook')
         EvalHook = getattr(core, eval_hook)
-        runner.register_hook(EvalHook(val_dataset_cfg, **eval_cfg))
+        hook_train = eval_cfg.pop('hook_train', False)
+        if hook_train:
+            train_for_val = val_dataset_cfg.copy()
+            train_for_val.ann_file = './datasets/CityPersons/train_vis.json'
+            train_for_val.img_prefix = cfg.data.train.img_prefix
+
+            runner.register_hook(EvalHook(val_dataset_cfg, train_dataset=train_for_val, **eval_cfg))
+        else:
+            runner.register_hook(EvalHook(val_dataset_cfg, **eval_cfg))
 
     if cfg.resume_from:
         runner.resume(cfg.resume_from)
