@@ -104,7 +104,7 @@ class ConvModule(nn.Module):
 
         if self.use_offset:
             locations = kernel_size**2 if isinstance(kernel_size, int) else np.prod(np.array(kernel_size))
-            self.offset = nn.Conv2d(in_channels, 2*locations, 1, stride=stride, padding=padding, bias=True)
+            self.offset = nn.Conv2d(in_channels, 2*locations, 1, stride=stride, padding=0, bias=True)
         # build convolution layer
         self.conv = build_conv_layer(
             conv_cfg,
