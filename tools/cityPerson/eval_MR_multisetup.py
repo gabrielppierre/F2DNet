@@ -391,8 +391,9 @@ class COCOeval:
                     nd = len(tp)
                     recall = tp / npig
                     q = np.zeros((R,))
-                    _mr = 1 - recall[-1]
-                    _fppi = fppi[-1]
+                    if recall.shape[0] > 0:
+                        _mr = 1 - recall[-1]
+                        _fppi = fppi[-1]
 
                     # numpy is slow without cython optimization for accessing elements
                     # use python array gets significant speed improvement
