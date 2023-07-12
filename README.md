@@ -51,14 +51,12 @@ Please refer to base repository for dataset preparation.
 ### Please cite the following work
 [AxXiv2022](https://arxiv.org/pdf/2203.02331.pdf)
 ```
-@Article{khan:2022,
-  author      = {Khan, Abdul Hannan AND Munir, Mohsin AND Elst, Ludger van AND Dengel, Andreas},
-  title       = {F2DNet: Fast Focal Detection Network for Pedestrian Detection},
-  version     = {1},
-  date        = {2022-03-04},
-  eprinttype  = {arxiv},
-  eprintclass = {cs.CV, I.2.10; I.4.8; I.5.4},
-  eprint      = {http://arxiv.org/abs/2203.02331v1},
-  url         = {http://arxiv.org/abs/2203.02331v1}
+@inproceedings{khan2022f2dnet,
+  title={F2DNet: fast focal detection network for pedestrian detection},
+  author={Khan, Abdul Hannan and Munir, Mohsin and van Elst, Ludger and Dengel, Andreas},
+  booktitle={2022 26th International Conference on Pattern Recognition (ICPR)},
+  pages={4658--4664},
+  year={2022},
+  organization={IEEE}
 }
 ```
